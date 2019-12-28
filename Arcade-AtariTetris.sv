@@ -14,7 +14,7 @@ module emu
 	input         RESET,
 
 	//Must be passed to hps_io module
-	inout  [44:0] HPS_BUS,
+	inout  [45:0] HPS_BUS,
 
 	//Base video clock. Usually equals to CLK_SYS.
 	output        VGA_CLK,
@@ -29,6 +29,7 @@ module emu
 	output        VGA_HS,
 	output        VGA_VS,
 	output        VGA_DE,    // = ~(VBlank | HBlank)
+	output		  VGA_F1,
 
 	//Base video clock. Usually equals to CLK_SYS.
 	output        HDMI_CLK,
@@ -59,9 +60,19 @@ module emu
 
 	output [15:0] AUDIO_L,
 	output [15:0] AUDIO_R,
-	output        AUDIO_S    // 1 - signed audio samples, 0 - unsigned
+	output        AUDIO_S,   // 1 - signed audio samples, 0 - unsigned
+
+	// Open-drain User port.
+	// 0 - D+/RX
+	// 1 - D-/TX
+	// 2..6 - USR2..USR6
+	// Set USER_OUT to 1 to read from USER_IN.
+	input   [6:0] USER_IN,
+	output  [6:0] USER_OUT
 );
 
+assign VGA_F1	  = 0;
+assign USER_OUT  = '1;
 assign LED_USER  = ioctl_download;
 assign LED_DISK  = 0;
 assign LED_POWER = 0;
@@ -74,12 +85,13 @@ localparam CONF_STR = {
 	"A.ATetris;;",
 	"F,rom;", // allow loading of alternate ROMs
 	"-;",
-	"O1,Aspect Ratio,Original,Wide;",
+	"H0O1,Aspect Ratio,Original,Wide;",
 	"O35,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"-;",
 	"OH,Self-Test,Off,On;",
 	"-;",
 	"O8C,Analog Video H-Pos,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31;",
+	"OIK,Analog Video V-Pos,0,1,2,3,4,5,6,7;",
 	"-;",
 	"R0,Reset;",
 	"J1,Rotate,Coin;",
@@ -87,6 +99,7 @@ localparam CONF_STR = {
 };
 
 wire [4:0] HOFFS = status[12:8];
+wire [2:0] VOFFS = status[20:18];
 
 wire bSelfTest = status[17];
 
@@ -110,6 +123,7 @@ pll pll
 wire [31:0] status;
 wire  [1:0] buttons;
 wire        forced_scandoubler;
+wire			direct_video;
 
 wire        ioctl_download;
 wire        ioctl_wr;
@@ -119,6 +133,8 @@ wire  [7:0] ioctl_dout;
 wire [10:0] ps2_key;
 wire [15:0] joystk1, joystk2;
 
+wire [21:0] gamma_bus;
+
 hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 (
 	.clk_sys(clk_sys),
@@ -127,9 +143,14 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 	.conf_str(CONF_STR),
 
 	.buttons(buttons),
-	.status(status),
-	.forced_scandoubler(forced_scandoubler),
 
+	.status(status),
+	.status_menumask({15'h0,direct_video}),
+
+	.forced_scandoubler(forced_scandoubler),
+	.gamma_bus(gamma_bus),
+	.direct_video(direct_video),
+	
 	.ioctl_download(ioctl_download),
 	.ioctl_wr(ioctl_wr),
 	.ioctl_addr(ioctl_addr),
@@ -248,7 +269,7 @@ HVGEN hvgen
 (
 	.HPOS(HPOS),.VPOS(VPOS),.PCLK(PCLK),.iRGB(POUT),
 	.oRGB({r,g,b}),.HBLK(hblank),.VBLK(vblank),.HSYN(hs),.VSYN(vs),
-	.HOFFS(HOFFS)
+	.HOFFS(HOFFS),.VOFFS(VOFFS)
 );
 assign ce_vid = PCLK;
 
@@ -256,7 +277,7 @@ assign ce_vid = PCLK;
 wire [15:0] AOUT;
 assign AUDIO_L = AOUT;
 assign AUDIO_R = AUDIO_L;
-assign AUDIO_S = 0; // unsigned PCM
+assign AUDIO_S = 0;// unsigned PCM
 
 
 ///////////////////////////////////////////////////
@@ -338,7 +359,8 @@ module HVGEN
 	output reg			HSYN = 1,
 	output reg			VSYN = 1,
 	
-	input   [8:0]		HOFFS
+	input   [8:0]		HOFFS,
+	input   [8:0]		VOFFS
 );
 
 reg [8:0] hcnt = 0;
@@ -351,6 +373,9 @@ wire [8:0] HS_B = 360+(HOFFS*2);
 wire [8:0] HS_E =  24+(HS_B);
 wire [8:0] HS_N = 511-(456-HS_E);
 
+wire [8:0] VS_B = 240+(VOFFS*2);
+wire [8:0] VS_E =   3+(VS_B);
+
 always @(posedge PCLK) begin
 	case (hcnt)
 		  0: begin HBLK <= 0; hcnt <= hcnt+1; end
@@ -358,8 +383,6 @@ always @(posedge PCLK) begin
 		511: begin hcnt <= 0;
 			case (vcnt)
 				239: begin VBLK <= 1; vcnt <= vcnt+1; end
-				240: begin VSYN <= 0; vcnt <= vcnt+1; end
-				243: begin VSYN <= 1; vcnt <= vcnt+1; end
 				261: begin VBLK <= 0; vcnt <= 0;      end
 				default: vcnt <= vcnt+1;
 			endcase
@@ -370,6 +393,9 @@ always @(posedge PCLK) begin
 	if (hcnt==HS_B) begin HSYN <= 0; end
 	if (hcnt==HS_E) begin HSYN <= 1; hcnt <= HS_N; end
 
+	if (vcnt==VS_B) begin VSYN <= 0; end
+	if (vcnt==VS_E) begin VSYN <= 1; end
+	
 	oRGB <= (HBLK|VBLK) ? 8'h0 : iRGB;
 end
 
