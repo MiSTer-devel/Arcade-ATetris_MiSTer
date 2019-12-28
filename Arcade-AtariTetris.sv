@@ -4,6 +4,8 @@
 //						Written by MiSTer-X 2019
 //============================================================================
 
+`include "src/fourWay/controls_top.sv"
+
 module emu
 (
 	//Master input clock
@@ -88,6 +90,7 @@ localparam CONF_STR = {
 	"H0O1,Aspect Ratio,Original,Wide;",
 	"O35,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"-;",
+	"ODG,Diagonal,Default,Change Direction,Keep Direction,Vertical,Horizontal,Stop;",
 	"OH,Self-Test,Off,On;",
 	"-;",
 	"O8C,Analog Video H-Pos,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31;",
@@ -97,6 +100,8 @@ localparam CONF_STR = {
 	"J1,Rotate,Coin;",
 	"V,v",`BUILD_DATE
 };
+
+wire [3:0] DG_MODE = status[16:13];
 
 wire [4:0] HOFFS = status[12:8];
 wire [2:0] VOFFS = status[20:18];
@@ -306,7 +311,7 @@ wire	iRST = RESET | status[0] | buttons[1] | ioctl_download;
 wire dum1,oP1DW,oP1LF,oP1RG;
 wire dum2,oP2DW,oP2LF,oP2RG;
 
-joyonedir player1
+enhanced4wayjoy player1
 (
     clk_sys,
     {
@@ -315,10 +320,11 @@ joyonedir player1
 		  `P1LF,
         `P1RG
     },
-    {dum1, oP1DW, oP1LF, oP1RG}
+    {dum1, oP1DW, oP1LF, oP1RG},
+    DG_MODE
 );
 
-joyonedir player2
+enhanced4wayjoy player2
 (
     clk_sys,
     {
@@ -327,7 +333,8 @@ joyonedir player2
 		  `P2LF,
         `P2RG
     },
-    {dum2, oP2DW, oP2LF, oP2RG}
+    {dum2, oP2DW, oP2LF, oP2RG},
+    DG_MODE
 );
 
 wire [10:0] INP = ~{`SELFT,`COIN2,`COIN1,oP2LF,oP2RG,oP2DW,`P2RO,oP1LF,oP1RG,oP1DW,`P1RO};
@@ -341,7 +348,6 @@ FPGA_ATETRIS GameCore
 
 	.ROMCL(clk_sys),.ROMAD(ioctl_addr),.ROMDT(ioctl_dout),.ROMEN(ioctl_wr)
 );
-
 
 endmodule
 
@@ -401,29 +407,3 @@ end
 
 endmodule
 
-
-module joyonedir
-(
-	input        clk,
-	input  [3:0] indir,
-	output [3:0] outdir
-);
-
-reg  [3:0] mask = 0;
-reg  [3:0] in1,in2;
-wire [3:0] innew = in1 & ~in2;
-
-assign outdir = in1 & mask;
-
-always @(posedge clk) begin
-	
-	in1 <= indir;
-	in2 <= in1;
-	
-	if(innew[0]) mask <= 1;
-	if(innew[1]) mask <= 2;
-	if(innew[2]) mask <= 4;
-	if(innew[3]) mask <= 8;
-end
-
-endmodule
