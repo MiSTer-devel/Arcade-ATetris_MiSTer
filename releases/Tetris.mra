@@ -1,14 +1,14 @@
 <misterromdescription>
 	<name>Tetris (set 1)</name>
-	<mameversion>0216</mameversion>
+	<mameversion>0220</mameversion>
 	<setname>atetris</setname>
-	<mratimestamp>201911270000</mratimestamp>
+	<mratimestamp>20200427161917</mratimestamp>
 	<year>1988</year>
 	<manufacturer>Atari Games</manufacturer>
 	<category>Puzzle / Tetris</category>
 	<rbf>ataritetris</rbf>
-	<rom index="0" zip="atetris.zip" md5="a0c77ec919e7958798ce6ca999df4f85" type="merged|nonmerged">
-		<part name="136066-1100.45f"/>
-		<part name="136066-1101.35a"/>
+	<rom index="0" zip="atetris.zip" md5="a0c77ec919e7958798ce6ca999df4f85">
+		<part crc="2acbdb09" name="136066-1100.45f"/>
+		<part crc="84a1939f" name="136066-1101.35a"/>
 	</rom>
 </misterromdescription>
