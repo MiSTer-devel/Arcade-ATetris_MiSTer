@@ -7,6 +7,10 @@
 	<manufacturer>Atari Games</manufacturer>
 	<category>Puzzle / Tetris</category>
 	<rbf>ataritetris</rbf>
+		<rom index="1">
+		<part>00</part>
+	</rom>
+
 	<rom index="0" zip="atetris.zip" md5="a0c77ec919e7958798ce6ca999df4f85">
 		<part crc="2acbdb09" name="136066-1100.45f"/>
 		<part crc="84a1939f" name="136066-1101.35a"/>

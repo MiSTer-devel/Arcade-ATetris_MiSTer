@@ -124,8 +124,8 @@ assign {FB_PAL_CLK, FB_FORCE_BLANK, FB_PAL_ADDR, FB_PAL_DOUT, FB_PAL_WR} = '0;
 
 wire [1:0] ar = status[20:19];
 
-assign VIDEO_ARX = (!ar) ? ((status[2])  ? 8'd4 : 8'd3) : (ar - 1'd1);
-assign VIDEO_ARY = (!ar) ? ((status[2])  ? 8'd3 : 8'd4) : 12'd0;
+assign VIDEO_ARX = (!ar) ? ((status[2]|mod_tetris)  ? 8'd4 : 8'd3) : (ar - 1'd1);
+assign VIDEO_ARY = (!ar) ? ((status[2]|mod_tetris)  ? 8'd3 : 8'd4) : 12'd0;
 
 
 `include "build_id.v" 
@@ -133,7 +133,7 @@ localparam CONF_STR = {
 	"A.ATetris;;",
 	"-;",
 	"H0OJK,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
-	"H0O2,Orientation,Vert,Horz;",
+	"H1H0O2,Orientation,Vert,Horz;",
 	"O35,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"-;",
 	"ODG,Diagonal,Default,Change Direction,Keep Direction,Vertical,Horizontal,Stop;",
@@ -144,7 +144,7 @@ localparam CONF_STR = {
 	"-;",
 	"R0,Reset;",
 	"J1,Rotate,Start 1P,Start 2P,Coin;",
-        "jn,A,Start,Select,R;",
+	"jn,A,Start,Select,R;",
 	"V,v",`BUILD_DATE
 };
 
@@ -157,7 +157,7 @@ wire bSelfTest = status[17];
 
 
 ////////////////////   CLOCKS   ///////////////////
-
+ 
 wire clk_hdmi;
 wire clk_14M;
 wire clk_sys = clk_hdmi;
@@ -181,6 +181,7 @@ wire        ioctl_download;
 wire        ioctl_wr;
 wire [24:0] ioctl_addr;
 wire  [7:0] ioctl_dout;
+wire  [7:0] ioctl_index;
 
 wire [15:0] joystk1, joystk2;
 
@@ -196,7 +197,7 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 	.buttons(buttons),
 
 	.status(status),
-	.status_menumask({15'h0,direct_video}),
+	.status_menumask({14'h0,mod_tetris,direct_video}),
 
 	.forced_scandoubler(forced_scandoubler),
 	.gamma_bus(gamma_bus),
@@ -206,6 +207,7 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 	.ioctl_wr(ioctl_wr),
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
+	.ioctl_index(ioctl_index),
 
 	.joystick_0(joystk1),
 	.joystick_1(joystk2)
@@ -218,7 +220,7 @@ wire m_right2  = joystk2[0];
 wire m_trig21  = joystk2[4];
 
 wire m_start1  = joystk1[5]|joystk2[5];
-wire m_start2  = joystk2[6]|joystk2[6];
+wire m_start2  = joystk1[6]|joystk2[6];
 
 wire m_up1     = joystk1[3];
 wire m_down1   = joystk1[2];
@@ -228,6 +230,23 @@ wire m_trig11  = joystk1[4];
 
 wire m_coin1   = joystk1[7];
 wire m_coin2   = joystk2[7];
+
+
+
+reg mod_tetris = 0;
+reg mod_tetris_cocktail = 0;
+
+
+always @(posedge clk_sys) begin
+	reg [7:0] mod = 0;
+	if (ioctl_wr & (ioctl_index==1)) mod <= ioctl_dout;
+	
+	mod_tetris <= (mod == 0);
+	mod_tetris_cocktail <= (mod == 1);
+end
+
+
+wire no_rotate = status[2] | direct_video | mod_tetris;
 
 
 ///////////////////////////////////////////////////
@@ -243,6 +262,9 @@ always @(posedge clk_hdmi) begin
 	old_clk <= ce_vid;
 	ce_pix  <= old_clk & ~ce_vid;
 end
+
+wire rotate_ccw = 1;
+screen_rotate screen_rotate (.*);
 
 arcade_video #(336,8) arcade_video
 (
@@ -291,13 +313,13 @@ wire	iRST = RESET | status[0] | buttons[1] | ioctl_download;
 `define P1DW	m_down1
 `define P1LF	m_left1
 `define P1RG	m_right1
-`define P1RO	m_trig11
+`define P1RO	m_trig11|m_start1
 
 `define P2UP	m_up2
 `define P2DW	m_down2
 `define P2LF	m_left2
 `define P2RG	m_right2
-`define P2RO	m_trig21
+`define P2RO	m_trig21|m_start2
 
 
 wire dum1,oP1DW,oP1LF,oP1RG;
@@ -338,7 +360,7 @@ FPGA_ATETRIS GameCore
 	.HPOS(HPOS),.VPOS(VPOS),.PCLK(PCLK),.POUT(POUT),
 	.AOUT(AOUT),
 
-	.ROMCL(clk_sys),.ROMAD(ioctl_addr),.ROMDT(ioctl_dout),.ROMEN(ioctl_wr)
+	.ROMCL(clk_sys),.ROMAD(ioctl_addr),.ROMDT(ioctl_dout),.ROMEN(ioctl_wr & (ioctl_index == 0))
 );
 
 endmodule
