@@ -20,7 +20,14 @@ module FPGA_ATETRIS
 	input				ROMCL,	// Download ROM image
 	input  [16:0]	ROMAD,
 	input   [7:0]	ROMDT,
-	input				ROMEN
+	input				ROMEN,
+
+	input				pause,
+
+	input	 [11:0]	hs_address,
+	input	 [7:0]	hs_data_in,
+	output [7:0]	hs_data_out,
+	input				hs_write
 );
 
 // INP = {`SELFT,`COIN2,`COIN1,`P2LF,`P2RG,`P2DW,`P2RO,`P1LF,`P1RG,`P1DW,`P1RO};
@@ -62,7 +69,7 @@ ATETRIS_ROMAXS romaxs(RST,DEVCL,CPUAD,PRAD,PRDV);
 // RAMs
 wire [7:0]  RMDT;
 wire		   RMDV;
-ATETRIS_RAMS rams(DEVCL,CPUAD,CPUWR,CPUDO,RMDT,RMDV);
+ATETRIS_RAMS rams(DEVCL,CPUAD,CPUWR,CPUDO,RMDT,RMDV,ROMCL,hs_address,hs_data_in,hs_data_out,hs_write);
 
 
 // Video
@@ -92,7 +99,7 @@ ATETRIS_SOUND sound(
 
 
 // IRQ Generator & Watch-Dog Timer
-ATETRIS_IRQWDT irqwdt(RST,VPOS, DEVCL,CPUAD,CPUWR, CPUIRQ,WDRST);
+ATETRIS_IRQWDT irqwdt(RST,VPOS, DEVCL,CPUAD,CPUWR, CPUIRQ,WDRST,pause);
 
 
 // CPU data selector
@@ -105,7 +112,7 @@ DSEL4x8 dsel(dum,CPUDI,
 );
 
 // CPU
-CPU6502W cpu(RST,CPUCL,CPUAD,CPUWR,CPUDO,CPUDI,CPUIRQ);
+CPU6502W cpu(RST,CPUCL,CPUAD,CPUWR,CPUDO,CPUDI,CPUIRQ,pause);
 
 endmodule
 
@@ -159,7 +166,13 @@ module ATETRIS_RAMS
 	input				CPUWR,
 	input   [7:0]	CPUDO,
 	output  [7:0]	RMDT,
-	output			RMDV
+	output			RMDV,
+
+	input				hs_clock,
+	input	 [8:0]	hs_address,
+	input	 [7:0]	hs_data_in,
+	output [7:0]	hs_data_out,
+	input				hs_write
 );
 
 // WorkRAM
@@ -170,7 +183,10 @@ RAM_B #(12)	wram(DEVCL,CPUAD,WRDV,CPUWR,CPUDO,WRDT);
 // NVRAM
 wire			NVDV = (CPUAD[15:10]==6'b0010_01);			// $24xx-$27xx
 wire  [7:0] NVDT;
-RAM_B #(9,255)	nvram(DEVCL,CPUAD,NVDV,CPUWR,CPUDO,NVDT);
+DPRAM_B #(9,255)	nvram(
+	DEVCL,CPUAD,NVDV,CPUWR,CPUDO,NVDT,
+	hs_clock,hs_address,1'b1,hs_write,hs_data_in,hs_data_out
+);
 
 DSEL4x8 dsel(RMDV,RMDT,
 	WRDV,WRDT,
@@ -190,7 +206,9 @@ module ATETRIS_IRQWDT
 	input				CPUWR,
 
 	output reg		IRQ = 0,
-	output			WDRST
+	output			WDRST,
+
+	input				pause
 );
 
 wire tWDTR = (CPUAD[15:10]==6'b0011_00) & CPUWR;	// $3000-$33FF
@@ -222,6 +240,7 @@ assign WDRST = WDT[3];
 
 reg [8:0] pVPT;
 always @(posedge DEVCL) begin
+	if (pause) WDT <= 0;
 	if (tWDTR) WDT <= 0;
 	else if (pVPT!=VP) begin
 		if (VP==0) WDT <= (WDT==8) ? 14 : (WDT+1);
@@ -346,7 +365,9 @@ module CPU6502W
 	output  [7:0]	DO,
 	input	  [7:0]	DI,
 
-	input				IRQ
+	input				IRQ,
+
+	input				pause
 );
 
 wire   rw;
@@ -359,7 +380,7 @@ T65 cpu
 	.res_n(~RST),
 	.enable(1'b1),
 	.clk(CLK),
-	.rdy(1'b1),
+	.rdy(~pause),
 	.abort_n(1'b1),
 	.irq_n(~IRQ),
 	.nmi_n(1'b1),

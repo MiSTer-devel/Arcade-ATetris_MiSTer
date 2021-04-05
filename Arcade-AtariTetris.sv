@@ -141,10 +141,11 @@ localparam CONF_STR = {
 	"-;",
 	"O8C,Analog Video H-Pos,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31;",
 	"OIK,Analog Video V-Pos,0,1,2,3,4,5,6,7;",
+	"O6,Pause when OSD is open,On,Off;",
 	"-;",
 	"R0,Reset;",
-	"J1,Rotate,Start 1P,Start 2P,Coin;",
-	"jn,A,Start,Select,R;",
+	"J1,Rotate,Start 1P,Start 2P,Coin,Pause;",
+	"jn,A,Start,Select,R,L;",
 	"V,v",`BUILD_DATE
 };
 
@@ -177,11 +178,13 @@ wire  [1:0] buttons;
 wire        forced_scandoubler;
 wire			direct_video;
 
-wire        ioctl_download;
-wire        ioctl_wr;
-wire [24:0] ioctl_addr;
-wire  [7:0] ioctl_dout;
-wire  [7:0] ioctl_index;
+wire				ioctl_download;
+wire				ioctl_upload;
+wire				ioctl_wr;
+wire	[7:0]		ioctl_index;
+wire	[24:0]	ioctl_addr;
+wire	[7:0]		ioctl_din;
+wire	[7:0]		ioctl_dout;
 
 wire [15:0] joystk1, joystk2;
 
@@ -202,11 +205,13 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 	.forced_scandoubler(forced_scandoubler),
 	.gamma_bus(gamma_bus),
 	.direct_video(direct_video),
-	
+
 	.ioctl_download(ioctl_download),
+	.ioctl_upload(ioctl_upload),
 	.ioctl_wr(ioctl_wr),
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
+	.ioctl_din(ioctl_din),
 	.ioctl_index(ioctl_index),
 
 	.joystick_0(joystk1),
@@ -230,7 +235,35 @@ wire m_trig11  = joystk1[4];
 
 wire m_coin1   = joystk1[7];
 wire m_coin2   = joystk2[7];
+wire m_pause   = joystk1[8] | joystk2[8];
 
+// PAUSE SYSTEM
+reg				pause;									// Pause signal (active-high)
+reg				pause_toggle = 1'b0;					// User paused (active-high)
+reg [31:0]		pause_timer;							// Time since pause
+reg [31:0]		pause_timer_dim = 31'h1DCD6500;	// Time until screen dim (10 seconds @ 50Mhz)
+reg 				dim_video = 1'b0;						// Dim video output (active-high)
+
+// Pause when highscore module requires access, user has pressed pause, or OSD is open and option is set
+assign pause = pause_toggle;// | (OSD_STATUS && ~status[6]);
+assign dim_video = (pause_timer >= pause_timer_dim) ? 1'b1 : 1'b0;
+
+always @(posedge clk_hdmi) begin
+	reg old_pause;
+	old_pause <= m_pause;
+	if(~old_pause & m_pause) pause_toggle <= ~pause_toggle;
+	if(pause_toggle)
+	begin
+		if(pause_timer<pause_timer_dim)
+		begin
+			pause_timer <= pause_timer + 1'b1;
+		end
+	end
+	else
+	begin
+		pause_timer <= 1'b0;
+	end
+end
 
 
 reg mod_tetris = 0;
@@ -255,6 +288,7 @@ wire hblank, vblank;
 wire ce_vid;
 wire hs, vs;
 wire [2:0] r,g; wire [1:0] b;
+wire [7:0] rgb_out = dim_video ? {r >> 1,g >> 1, b >> 1} : {r,g,b};
 
 reg ce_pix;
 always @(posedge clk_hdmi) begin
@@ -272,7 +306,7 @@ arcade_video #(336,8) arcade_video
 
 	.clk_video(clk_hdmi),
 
-	.RGB_in({r,g,b}),
+	.RGB_in(rgb_out),
 	.HBlank(hblank),
 	.VBlank(vblank),
 	.HSync(~hs),
@@ -300,8 +334,9 @@ assign AUDIO_S = 0;// unsigned PCM
 
 
 ///////////////////////////////////////////////////
-
-wire	iRST = RESET | status[0] | buttons[1] | ioctl_download;
+wire rom_download = ioctl_download & !ioctl_index;
+wire nvm_download = ioctl_download & (ioctl_index=='d4);
+wire iRST = RESET | status[0] | buttons[1] | ioctl_download;
 
 
 `define SELFT	bSelfTest
@@ -360,7 +395,17 @@ FPGA_ATETRIS GameCore
 	.HPOS(HPOS),.VPOS(VPOS),.PCLK(PCLK),.POUT(POUT),
 	.AOUT(AOUT),
 
-	.ROMCL(clk_sys),.ROMAD(ioctl_addr),.ROMDT(ioctl_dout),.ROMEN(ioctl_wr & (ioctl_index == 0))
+	.ROMCL(clk_sys),
+	.ROMAD(ioctl_addr),
+	.ROMDT(ioctl_dout),
+	.ROMEN(ioctl_wr & rom_download),
+
+	.pause(pause),
+
+	.hs_address(ioctl_addr),
+	.hs_data_in(ioctl_dout),
+	.hs_data_out(ioctl_din),
+	.hs_write(ioctl_wr & nvm_download)
 );
 
 endmodule
