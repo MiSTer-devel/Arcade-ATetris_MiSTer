@@ -16,7 +16,7 @@ module emu
 	input         RESET,
 
 	//Must be passed to hps_io module
-	inout  [45:0] HPS_BUS,
+	inout  [48:0] HPS_BUS,
 
 	//Base video clock. Usually equals to CLK_SYS.
 	output        CLK_VIDEO,
@@ -39,12 +39,14 @@ module emu
 	output        VGA_F1,
 	output [1:0]  VGA_SL,
 	output        VGA_SCALER, // Force VGA scaler
+	output        VGA_DISABLE, // analog out is off
 
 	input  [11:0] HDMI_WIDTH,
 	input  [11:0] HDMI_HEIGHT,
+	output        HDMI_FREEZE,
 
 `ifdef MISTER_FB
-	// Use framebuffer in DDRAM (USE_FB=1 in qsf)
+	// Use framebuffer in DDRAM
 	// FB_FORMAT:
 	//    [2:0] : 011=8bpp(palette) 100=16bpp 101=24bpp 110=32bpp
 	//    [3]   : 0=16bits 565 1=16bits 1555
@@ -172,11 +174,13 @@ assign LED_POWER = 0;
 assign BUTTONS   = 0;
 assign AUDIO_MIX = 0;
 assign FB_FORCE_BLANK = '0;
+assign VGA_DISABLE = 0;
+assign HDMI_FREEZE = 0;
 
 wire [1:0] ar = status[20:19];
 
-assign VIDEO_ARX = (!ar) ? ((status[2]|mod_tetris)  ? 8'd4 : 8'd3) : (ar - 1'd1);
-assign VIDEO_ARY = (!ar) ? ((status[2]|mod_tetris)  ? 8'd3 : 8'd4) : 12'd0;
+assign VIDEO_ARX = (!ar) ? ((~status[2]) ? 12'd448 : 12'd373) : (ar - 1'd1);
+assign VIDEO_ARY = (!ar) ? ((~status[2]) ? 12'd373 : 12'd448) : 12'd0;
 
 
 `include "build_id.v" 
@@ -184,7 +188,8 @@ localparam CONF_STR = {
 	"A.ATetris;;",
 	"-;",
 	"H0OJK,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
-	"H1H0O2,Orientation,Vert,Horz;",
+	"H0O2,Orientation,Horz,Vert;",
+	"O7,Flip Screen,Off,On;",
 	"O35,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
 	"-;",
 	"ODG,Diagonal,Default,Change Direction,Keep Direction,Vertical,Horizontal,Stop;",
@@ -241,21 +246,20 @@ wire [15:0] joystk1, joystk2;
 
 wire [21:0] gamma_bus;
 
-hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
+hps_io #(.CONF_STR(CONF_STR)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
 
-	.conf_str(CONF_STR),
-
 	.buttons(buttons),
 
 	.status(status),
-	.status_menumask({14'h0,mod_tetris,direct_video}),
+	.status_menumask(direct_video),
 
 	.forced_scandoubler(forced_scandoubler),
 	.gamma_bus(gamma_bus),
 	.direct_video(direct_video),
+	.video_rotated(video_rotated),
 
 	.ioctl_download(ioctl_download),
 	.ioctl_upload(ioctl_upload),
@@ -316,21 +320,10 @@ always @(posedge clk_hdmi) begin
 	end
 end
 
-
-reg mod_tetris = 0;
-reg mod_tetris_cocktail = 0;
-
-
-always @(posedge clk_sys) begin
-	reg [7:0] mod = 0;
-	if (ioctl_wr & (ioctl_index==1)) mod <= ioctl_dout;
-	
-	mod_tetris <= (mod == 0);
-	mod_tetris_cocktail <= (mod == 1);
-end
-
-
-wire no_rotate = status[2] | direct_video | mod_tetris;
+wire rotate_ccw = status[7];
+wire flip = 0; 
+wire no_rotate = ~status[2] | direct_video;
+wire video_rotated;
 
 
 ///////////////////////////////////////////////////
@@ -348,7 +341,7 @@ always @(posedge clk_hdmi) begin
 	ce_pix  <= old_clk & ~ce_vid;
 end
 
-wire rotate_ccw = 1;
+
 screen_rotate screen_rotate (.*);
 
 arcade_video #(336,8) arcade_video
